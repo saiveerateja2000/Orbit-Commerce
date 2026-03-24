@@ -1,4 +1,5 @@
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -13,7 +14,15 @@ from app.database import get_db
 from app.models import User
 from app.schemas import TokenData
 
-SECRET_KEY = os.getenv("SECRET_KEY", "changeme-use-a-long-random-secret-in-production")
+logger = logging.getLogger(__name__)
+
+_SECRET_KEY_DEFAULT = "changeme-use-a-long-random-secret-in-production"
+SECRET_KEY = os.getenv("SECRET_KEY", _SECRET_KEY_DEFAULT)
+if SECRET_KEY == _SECRET_KEY_DEFAULT:
+    logger.warning(
+        "SECRET_KEY is using the insecure default value. "
+        "Set the SECRET_KEY environment variable in production."
+    )
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 

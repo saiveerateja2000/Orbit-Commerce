@@ -32,8 +32,6 @@ async def register(payload: UserCreate, db: AsyncSession = Depends(get_db)):
         hashed_password=get_password_hash(payload.password),
     )
     db.add(user)
-    await db.flush()
-    await db.refresh(user)
     return user
 
 

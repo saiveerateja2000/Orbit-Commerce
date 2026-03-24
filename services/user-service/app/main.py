@@ -1,5 +1,6 @@
 import os
 import logging
+import warnings
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -20,6 +21,15 @@ logger = logging.getLogger(__name__)
 
 OTLP_ENDPOINT = os.getenv("OTLP_ENDPOINT", "http://otel-collector:4317")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "user-service")
+
+# CORS: supply a comma-separated list via CORS_ORIGINS env var for production.
+_raw_origins = os.getenv("CORS_ORIGINS", "*")
+CORS_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",")]
+if "*" in CORS_ORIGINS:
+    warnings.warn(
+        "CORS_ORIGINS is set to '*' — restrict this in production via the CORS_ORIGINS env var.",
+        stacklevel=1,
+    )
 
 
 def setup_tracing():
@@ -50,7 +60,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
