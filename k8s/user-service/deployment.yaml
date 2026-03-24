@@ -1,0 +1,113 @@
+# ============================================================
+#  OrbitCommerce – User Service  (port 8001)
+# ============================================================
+
+# ── ConfigMap ─────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-service-config
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: backend
+data:
+  PORT: "8001"
+  DATABASE_URL: "postgresql://orbit:$(POSTGRES_PASSWORD)@postgres.orbit-commerce.svc.cluster.local:5432/user_db"
+  JWT_ALGORITHM: "HS256"
+  JWT_EXPIRY_MINUTES: "60"
+  OTLP_ENDPOINT: "http://jaeger.orbit-commerce.svc.cluster.local:4317"
+  LOG_LEVEL: "info"
+
+---
+# ── Deployment ────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/version: latest
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: user-service
+        app.kubernetes.io/name: user-service
+        app.kubernetes.io/component: backend
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: user-service
+          image: orbit-commerce/user-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+              name: http
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: orbit-commerce-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://orbit:$(POSTGRES_PASSWORD)@postgres.orbit-commerce.svc.cluster.local:5432/user_db"
+          envFrom:
+            - configMapRef:
+                name: orbit-commerce-config
+            - secretRef:
+                name: orbit-commerce-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+---
+# ── Service ───────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: user-service
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+      protocol: TCP

@@ -1,0 +1,115 @@
+# ============================================================
+#  OrbitCommerce – Notification Service  (port 8005)
+# ============================================================
+
+# ── ConfigMap ─────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notification-service-config
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: backend
+data:
+  PORT: "8005"
+  LOG_LEVEL: "info"
+  OTLP_ENDPOINT: "http://jaeger.orbit-commerce.svc.cluster.local:4317"
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_FROM: "noreply@orbitcommerce.com"
+
+---
+# ── Deployment ────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/version: latest
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notification-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: notification-service
+        app.kubernetes.io/name: notification-service
+        app.kubernetes.io/component: backend
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notification-service
+          image: orbit-commerce/notification-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8005
+              name: http
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: orbit-commerce-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://orbit:$(POSTGRES_PASSWORD)@postgres.orbit-commerce.svc.cluster.local:5432/notification_db"
+          envFrom:
+            - configMapRef:
+                name: orbit-commerce-config
+            - configMapRef:
+                name: notification-service-config
+            - secretRef:
+                name: orbit-commerce-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8005
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8005
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+---
+# ── Service ───────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: notification-service
+  ports:
+    - name: http
+      port: 8005
+      targetPort: 8005
+      protocol: TCP

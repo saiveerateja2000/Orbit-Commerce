@@ -1,0 +1,374 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'DOCKER_REGISTRY',
+            defaultValue: 'your-registry',
+            description: 'Docker registry hostname (e.g. docker.io/myorg or ghcr.io/myorg)'
+        )
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'latest',
+            description: 'Docker image tag (e.g. latest, v1.2.3, or a git SHA)'
+        )
+        choice(
+            name: 'DEPLOY_ENV',
+            choices: ['dev', 'staging', 'prod'],
+            description: 'Target deployment environment'
+        )
+    }
+
+    environment {
+        DOCKER_REGISTRY = "${params.DOCKER_REGISTRY}"
+        IMAGE_TAG       = "${params.IMAGE_TAG}"
+    }
+
+    options {
+        timeout(time: 60, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    stages {
+
+        // ── 1. Checkout ────────────────────────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                    echo "Building commit ${env.GIT_COMMIT_SHORT} → tag ${env.IMAGE_TAG} (env: ${params.DEPLOY_ENV})"
+                }
+            }
+        }
+
+        // ── 2. Test ────────────────────────────────────────────────────────────
+        stage('Test') {
+            parallel {
+                stage('Test user-service') {
+                    steps {
+                        dir('services/user-service') {
+                            sh '''
+                                python -m venv .venv
+                                . .venv/bin/activate
+                                pip install --quiet -r requirements.txt
+                                pip install --quiet pytest pytest-asyncio httpx
+                                pytest tests/ -v --tb=short \
+                                    --junitxml=test-results/user-service.xml \
+                                    || true
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/user-service/test-results/*.xml'
+                        }
+                    }
+                }
+                stage('Test product-service') {
+                    steps {
+                        dir('services/product-service') {
+                            sh '''
+                                python -m venv .venv
+                                . .venv/bin/activate
+                                pip install --quiet -r requirements.txt
+                                pip install --quiet pytest pytest-asyncio httpx
+                                pytest tests/ -v --tb=short \
+                                    --junitxml=test-results/product-service.xml \
+                                    || true
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/product-service/test-results/*.xml'
+                        }
+                    }
+                }
+                stage('Test order-service') {
+                    steps {
+                        dir('services/order-service') {
+                            sh '''
+                                python -m venv .venv
+                                . .venv/bin/activate
+                                pip install --quiet -r requirements.txt
+                                pip install --quiet pytest pytest-asyncio httpx
+                                pytest tests/ -v --tb=short \
+                                    --junitxml=test-results/order-service.xml \
+                                    || true
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/order-service/test-results/*.xml'
+                        }
+                    }
+                }
+                stage('Test payment-service') {
+                    steps {
+                        dir('services/payment-service') {
+                            sh '''
+                                python -m venv .venv
+                                . .venv/bin/activate
+                                pip install --quiet -r requirements.txt
+                                pip install --quiet pytest pytest-asyncio httpx
+                                pytest tests/ -v --tb=short \
+                                    --junitxml=test-results/payment-service.xml \
+                                    || true
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/payment-service/test-results/*.xml'
+                        }
+                    }
+                }
+                stage('Test notification-service') {
+                    steps {
+                        dir('services/notification-service') {
+                            sh '''
+                                python -m venv .venv
+                                . .venv/bin/activate
+                                pip install --quiet -r requirements.txt
+                                pip install --quiet pytest pytest-asyncio httpx
+                                pytest tests/ -v --tb=short \
+                                    --junitxml=test-results/notification-service.xml \
+                                    || true
+                            '''
+                        }
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/notification-service/test-results/*.xml'
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 3. Build Docker Images ─────────────────────────────────────────────
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build user-service') {
+                    steps {
+                        sh """
+                            docker build \
+                                -t ${DOCKER_REGISTRY}/user-service:${IMAGE_TAG} \
+                                -t ${DOCKER_REGISTRY}/user-service:${env.GIT_COMMIT_SHORT} \
+                                services/user-service/
+                        """
+                    }
+                }
+                stage('Build product-service') {
+                    steps {
+                        sh """
+                            docker build \
+                                -t ${DOCKER_REGISTRY}/product-service:${IMAGE_TAG} \
+                                -t ${DOCKER_REGISTRY}/product-service:${env.GIT_COMMIT_SHORT} \
+                                services/product-service/
+                        """
+                    }
+                }
+                stage('Build order-service') {
+                    steps {
+                        sh """
+                            docker build \
+                                -t ${DOCKER_REGISTRY}/order-service:${IMAGE_TAG} \
+                                -t ${DOCKER_REGISTRY}/order-service:${env.GIT_COMMIT_SHORT} \
+                                services/order-service/
+                        """
+                    }
+                }
+                stage('Build payment-service') {
+                    steps {
+                        sh """
+                            docker build \
+                                -t ${DOCKER_REGISTRY}/payment-service:${IMAGE_TAG} \
+                                -t ${DOCKER_REGISTRY}/payment-service:${env.GIT_COMMIT_SHORT} \
+                                services/payment-service/
+                        """
+                    }
+                }
+                stage('Build notification-service') {
+                    steps {
+                        sh """
+                            docker build \
+                                -t ${DOCKER_REGISTRY}/notification-service:${IMAGE_TAG} \
+                                -t ${DOCKER_REGISTRY}/notification-service:${env.GIT_COMMIT_SHORT} \
+                                services/notification-service/
+                        """
+                    }
+                }
+                stage('Build frontend') {
+                    steps {
+                        sh """
+                            docker build \
+                                -t ${DOCKER_REGISTRY}/frontend:${IMAGE_TAG} \
+                                -t ${DOCKER_REGISTRY}/frontend:${env.GIT_COMMIT_SHORT} \
+                                frontend/
+                        """
+                    }
+                }
+            }
+        }
+
+        // ── 4. Push Docker Images ──────────────────────────────────────────────
+        stage('Push Docker Images') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-registry-credentials',
+                    usernameVariable: 'REGISTRY_USER',
+                    passwordVariable: 'REGISTRY_PASS'
+                )]) {
+                    sh "echo \"${REGISTRY_PASS}\" | docker login ${DOCKER_REGISTRY} -u \"${REGISTRY_USER}\" --password-stdin"
+
+                    script {
+                        def services = [
+                            'user-service',
+                            'product-service',
+                            'order-service',
+                            'payment-service',
+                            'notification-service',
+                            'frontend'
+                        ]
+                        services.each { svc ->
+                            sh """
+                                docker push ${DOCKER_REGISTRY}/${svc}:${IMAGE_TAG}
+                                docker push ${DOCKER_REGISTRY}/${svc}:${env.GIT_COMMIT_SHORT}
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 5. Deploy to Kubernetes via ArgoCD ────────────────────────────────
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([string(
+                    credentialsId: 'argocd-auth-token',
+                    variable: 'ARGOCD_AUTH_TOKEN'
+                )]) {
+                    script {
+                        def appName = "orbit-commerce-${params.DEPLOY_ENV}"
+
+                        sh """
+                            argocd app set ${appName} \
+                                --helm-set-string global.imageTag=${IMAGE_TAG} \
+                                --auth-token \$ARGOCD_AUTH_TOKEN \
+                                --grpc-web
+
+                            argocd app sync ${appName} \
+                                --auth-token \$ARGOCD_AUTH_TOKEN \
+                                --grpc-web \
+                                --prune \
+                                --timeout 300
+
+                            argocd app wait ${appName} \
+                                --auth-token \$ARGOCD_AUTH_TOKEN \
+                                --grpc-web \
+                                --health \
+                                --timeout 300
+                        """
+                    }
+                }
+            }
+        }
+
+        // ── 6. Cleanup ─────────────────────────────────────────────────────────
+        stage('Cleanup') {
+            steps {
+                script {
+                    def services = [
+                        'user-service',
+                        'product-service',
+                        'order-service',
+                        'payment-service',
+                        'notification-service',
+                        'frontend'
+                    ]
+                    services.each { svc ->
+                        sh """
+                            docker rmi ${DOCKER_REGISTRY}/${svc}:${IMAGE_TAG} || true
+                            docker rmi ${DOCKER_REGISTRY}/${svc}:${env.GIT_COMMIT_SHORT} || true
+                        """
+                    }
+                    // Remove dangling images left by the build
+                    sh 'docker image prune -f || true'
+                    // Remove venvs created during tests
+                    sh '''
+                        find services -name ".venv" -type d -exec rm -rf {} + || true
+                        find services -name "test-results" -type d -exec rm -rf {} + || true
+                    '''
+                }
+            }
+        }
+
+    } // end stages
+
+    // ── Post actions (Notify) ──────────────────────────────────────────────────
+    post {
+        always {
+            script {
+                def status  = currentBuild.currentResult
+                def message = "Build #${env.BUILD_NUMBER} for ${env.JOB_NAME} " +
+                              "finished with status: ${status}. " +
+                              "Commit: ${env.GIT_COMMIT_SHORT ?: 'unknown'}. " +
+                              "Env: ${params.DEPLOY_ENV}. " +
+                              "Details: ${env.BUILD_URL}"
+
+                sh """
+                    curl -sf -X POST \
+                        -H 'Content-Type: application/json' \
+                        -d '{"channel":"ci-cd","message":"${message}","level":"info"}' \
+                        http://notification-service:8005/api/v1/notifications/internal \
+                        || true
+                """
+            }
+        }
+        success {
+            script {
+                def message = "✅ SUCCESS: OrbitCommerce ${params.DEPLOY_ENV} deployment " +
+                              "completed for build #${env.BUILD_NUMBER} (tag: ${env.IMAGE_TAG})."
+
+                sh """
+                    curl -sf -X POST \
+                        -H 'Content-Type: application/json' \
+                        -d '{"channel":"ci-cd","message":"${message}","level":"success"}' \
+                        http://notification-service:8005/api/v1/notifications/internal \
+                        || true
+                """
+                echo message
+            }
+        }
+        failure {
+            script {
+                def message = "❌ FAILURE: OrbitCommerce pipeline failed at stage " +
+                              "'${env.STAGE_NAME}' for build #${env.BUILD_NUMBER}. " +
+                              "Check logs at ${env.BUILD_URL}."
+
+                sh """
+                    curl -sf -X POST \
+                        -H 'Content-Type: application/json' \
+                        -d '{"channel":"ci-cd","message":"${message}","level":"error"}' \
+                        http://notification-service:8005/api/v1/notifications/internal \
+                        || true
+                """
+                echo message
+            }
+        }
+    }
+
+}

@@ -1,0 +1,60 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  scrape_timeout:      10s
+  external_labels:
+    monitor: orbit-commerce
+
+# Alerting rules (files can be added to /etc/prometheus/rules/)
+rule_files: []
+
+scrape_configs:
+
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── Microservices ─────────────────────────────────────────────────
+  - job_name: user-service
+    static_configs:
+      - targets: ["user-service:8001"]
+        labels:
+          service: user-service
+    metrics_path: /metrics
+
+  - job_name: product-service
+    static_configs:
+      - targets: ["product-service:8002"]
+        labels:
+          service: product-service
+    metrics_path: /metrics
+
+  - job_name: order-service
+    static_configs:
+      - targets: ["order-service:8003"]
+        labels:
+          service: order-service
+    metrics_path: /metrics
+
+  - job_name: payment-service
+    static_configs:
+      - targets: ["payment-service:8004"]
+        labels:
+          service: payment-service
+    metrics_path: /metrics
+
+  - job_name: notification-service
+    static_configs:
+      - targets: ["notification-service:8005"]
+        labels:
+          service: notification-service
+    metrics_path: /metrics
+
+  # ── Jaeger ────────────────────────────────────────────────────────
+  - job_name: jaeger
+    static_configs:
+      - targets: ["jaeger:14269"]
+        labels:
+          service: jaeger
+    metrics_path: /metrics

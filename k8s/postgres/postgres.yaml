@@ -1,0 +1,170 @@
+# ============================================================
+#  OrbitCommerce – PostgreSQL (StatefulSet)
+# ============================================================
+
+# ── Init-DB ConfigMap ─────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-db
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+data:
+  init-db.sql: |
+    -- OrbitCommerce – PostgreSQL initialization script
+    -- Creates one database per microservice.
+    \connect postgres
+
+    CREATE DATABASE user_db;
+    CREATE DATABASE product_db;
+    CREATE DATABASE order_db;
+    CREATE DATABASE payment_db;
+    CREATE DATABASE notification_db;
+
+    GRANT ALL PRIVILEGES ON DATABASE user_db         TO orbit;
+    GRANT ALL PRIVILEGES ON DATABASE product_db      TO orbit;
+    GRANT ALL PRIVILEGES ON DATABASE order_db        TO orbit;
+    GRANT ALL PRIVILEGES ON DATABASE payment_db      TO orbit;
+    GRANT ALL PRIVILEGES ON DATABASE notification_db TO orbit;
+
+---
+# ── Secret ────────────────────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+type: Opaque
+data:
+  # These values are references to the shared secret; override here if needed.
+  # Replace with real base64-encoded values before deploying.
+  POSTGRES_USER: b3JiaXQ=           # orbit
+  POSTGRES_PASSWORD: cmVwbGFjZS13aXRoLXJlYWwtcG9zdGdyZXMtcGFzcw==
+
+---
+# ── PersistentVolumeClaim ─────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# ── StatefulSet ───────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: database
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              value: "orbit"
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-db
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U $(POSTGRES_USER) -d $(POSTGRES_DB)
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U $(POSTGRES_USER) -d $(POSTGRES_DB)
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: init-db
+          configMap:
+            name: postgres-init-db
+
+---
+# ── Service ───────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: orbit-commerce
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

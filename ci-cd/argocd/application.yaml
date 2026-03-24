@@ -1,0 +1,68 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: orbit-commerce
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: orbit-commerce
+    app.kubernetes.io/part-of: orbit-commerce-platform
+  annotations:
+    # Notifications hook – set up Argo CD Notifications separately
+    notifications.argoproj.io/subscribe.on-deployed.slack: orbit-commerce-deployments
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: orbit-commerce-alerts
+  finalizers:
+    # Remove all cluster resources when the Application is deleted
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: orbit-commerce
+
+  source:
+    repoURL: https://github.com/saiveerateja2000/Orbit-Commerce
+    targetRevision: HEAD
+    path: k8s/
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: orbit-commerce
+
+  syncPolicy:
+    automated:
+      # Automatically delete resources that are no longer defined in Git
+      prune: true
+      # Automatically correct any drift between the live state and the desired state in Git
+      selfHeal: true
+      # Do not sync if the repository has not been polled yet on startup
+      allowEmpty: false
+    syncOptions:
+      # Create the destination namespace automatically if it does not exist
+      - CreateNamespace=true
+      # Use server-side apply for large or CRD-heavy manifests
+      - ServerSideApply=true
+      # Replace resources (instead of patch) when annotations indicate it
+      - RespectIgnoreDifferences=true
+      # Keep PVCs when pruning (prevents accidental data loss)
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        # Initial retry delay
+        duration: 10s
+        # Exponential factor (delay doubles on each retry)
+        factor: 2
+        # Maximum retry delay cap
+        maxDuration: 3m
+
+  # Ignore differences that are expected to diverge at runtime
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+
+  # Scope the health assessment to all managed resources
+  revisionHistoryLimit: 10
