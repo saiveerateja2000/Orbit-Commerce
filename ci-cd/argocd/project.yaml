@@ -1,0 +1,91 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: orbit-commerce
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: orbit-commerce
+    app.kubernetes.io/part-of: orbit-commerce-platform
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "OrbitCommerce e-commerce platform – all microservices and infrastructure"
+
+  # ── Source repositories ────────────────────────────────────────────────────
+  sourceRepos:
+    - https://github.com/saiveerateja2000/Orbit-Commerce
+    # Allow any repo that contains Helm charts or additional manifests for this project
+    - '*'
+
+  # ── Destinations ──────────────────────────────────────────────────────────
+  destinations:
+    # Allow deployment to any namespace on the in-cluster Kubernetes API server
+    - server: https://kubernetes.default.svc
+      namespace: '*'
+
+  # ── Cluster-scoped resource allow-list ────────────────────────────────────
+  # An empty group ('') plus '*' kind means all resources in the core API group;
+  # combined with explicit group entries this grants access to every cluster resource.
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  # ── Namespace-scoped resource allow-list ──────────────────────────────────
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  # ── Namespace-scoped resource deny-list ───────────────────────────────────
+  # Nothing is explicitly denied; the whitelist above is permissive.
+  namespaceResourceBlacklist: []
+
+  # ── Roles ─────────────────────────────────────────────────────────────────
+  roles:
+    - name: ci-deployer
+      description: "Role used by the Jenkins / GitHub Actions pipeline to trigger syncs"
+      policies:
+        - p, proj:orbit-commerce:ci-deployer, applications, get,    orbit-commerce/*, allow
+        - p, proj:orbit-commerce:ci-deployer, applications, sync,   orbit-commerce/*, allow
+        - p, proj:orbit-commerce:ci-deployer, applications, update, orbit-commerce/*, allow
+      jwtTokens: []
+
+    - name: read-only
+      description: "Read-only access for auditing and observability tools"
+      policies:
+        - p, proj:orbit-commerce:read-only, applications, get, orbit-commerce/*, allow
+      jwtTokens: []
+
+  # ── Sync windows ──────────────────────────────────────────────────────────
+  syncWindows:
+    # Allow automated syncs at any time for dev
+    - kind: allow
+      schedule: '* * * * *'
+      duration: 24h
+      applications:
+        - 'orbit-commerce-dev'
+      manualSync: true
+
+    # Restrict automated syncs to business hours (UTC) for staging
+    - kind: allow
+      schedule: '0 8 * * 1-5'
+      duration: 10h
+      applications:
+        - 'orbit-commerce-staging'
+      manualSync: true
+
+    # Only allow manual syncs for production (no automated sync window)
+    - kind: deny
+      schedule: '* * * * *'
+      duration: 24h
+      applications:
+        - 'orbit-commerce-prod'
+      manualSync: false
+
+  # ── Orphaned resources ────────────────────────────────────────────────────
+  orphanedResources:
+    warn: true
+    ignore:
+      # Ignore resources created by the PostgreSQL init job that Argo CD did not apply
+      - group: ""
+        kind: ConfigMap
+        name: kube-root-ca.crt
