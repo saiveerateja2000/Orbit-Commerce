@@ -1,7 +1,10 @@
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+
+logger = logging.getLogger("product-service")
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -19,6 +22,11 @@ from app.schemas import (
 router = APIRouter()
 
 ADMIN_KEY = os.getenv("ADMIN_KEY", "changeme")
+if ADMIN_KEY == "changeme":
+    logger.warning(
+        "ADMIN_KEY is using the insecure default value. "
+        "Set the ADMIN_KEY environment variable to a secure secret in production."
+    )
 
 
 def verify_admin(x_admin_key: str = Header(...)):

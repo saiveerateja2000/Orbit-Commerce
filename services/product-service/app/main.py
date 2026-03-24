@@ -1,5 +1,8 @@
+import logging
 import os
 from contextlib import asynccontextmanager
+
+logger = logging.getLogger("product-service")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,9 +42,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+if "*" in _cors_origins:
+    logger.warning(
+        "CORS_ORIGINS is set to wildcard '*'. Restrict this in production "
+        "by setting the CORS_ORIGINS environment variable."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
